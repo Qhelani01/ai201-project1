@@ -1,0 +1,5 @@
+{
+  // Load .env into new integrated terminals so `python app.py ...` sees the API keys.
+  "python.terminal.useEnvFile": true,
+  "python.envFile": "${workspaceFolder}/.env"
+}
