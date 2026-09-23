@@ -1,6 +1,6 @@
 # The Unofficial Guide
 
-<!-- Replace this line with your name and which corpus you picked. -->
+Qhelani Moyo — corpus: `advice_threads`
 
 > **This file is your submission.** Fill it in as you go — most sections get
 > written during the milestone that produces them, not at the end.
@@ -21,11 +21,24 @@
 
 ## What This Does
 
-<!-- Three or four sentences. Which corpus you picked, and the kinds of
-     questions your system answers. Write it for someone who has never seen
-     this repo.
+This is a question-answering system over `advice_threads`, a corpus of 23
+student forum threads where someone asks a practical question about university
+life — laptops for CS courses, pass/fail deadlines, laundry timing, parking
+permits, roommate conflicts — and three to five other students reply with vote
+counts attached. You ask it a question in plain English and it answers from
+those threads only, naming the file it used.
 
-     Milestone 5. -->
+It handles specific questions with a findable answer: "how much RAM do I need
+for CS courses", "how late can I declare pass/fail", "when is laundry least
+busy". Because the replies in a thread routinely disagree with each other, the
+answers surface both sides rather than picking one, and they report what
+students said rather than stating it as official policy — the corpus is
+opinion, not the registrar.
+
+Anything the threads don't cover gets refused instead of guessed at. A
+relevance gate checks the retrieved chunks before the model is called at all,
+so an off-topic question costs nothing and comes back as "I don't have enough
+information about that."
 
 ## Chunking Strategy
 
@@ -262,14 +275,61 @@ reaching the model.
 
 ## How I Used AI
 
-<!-- Two specific moments. For each: what you asked for, what came back, and
-     what you changed about it.
+I used Claude heavily on this project, including to write most of the chunker
+and the write-ups. The two moments below are the ones where what came back was
+wrong or incomplete and had to change.
 
-     "I asked Claude to write the chunking function from my notes. It ignored
-     the overlap, so I added that myself" is the level of detail we're after.
-     "I used AI to help me code" is not.
+**1. The merge floor in the chunker was wrong, and the numbers caught it.**
 
-     Milestone 5. -->
+I asked Claude to replace the starter's fixed-width chunker with one that cuts
+at reply boundaries, since every document in `advice_threads` is a `THREAD:`
+question followed by `--- reply N (X votes) ---` blocks. What came back did
+that correctly and also added something I hadn't asked for: a minimum chunk
+length of 180 characters, so that a very short reply gets the next one glued on
+instead of going out as a fragment. The reasoning was sound — the starter's
+chunker produced a 2-character chunk on this corpus, so guarding against
+fragments is a real concern.
+
+It was the wrong number. Checking the output showed 34 chunks from 23
+documents, with 14 chunks holding three replies and **12 of the 23 documents
+coming back as a single whole-document chunk** — which is the starter's
+behaviour with extra steps, and defeats the entire reason for splitting on
+replies. The cause was that reply bodies here have a median of 117 characters,
+so a 180-character floor almost never lets one stand alone. I had it sweep the
+value: at 120 the corpus gives 67 chunks, mostly one reply each, with only the
+8 genuinely short replies merged. The lesson was that the argument for the
+guard was fine and the number attached to it was picked without looking at the
+corpus.
+
+**2. It called the distance gap clean when it wasn't.**
+
+For the relevance cutoff I asked what the five in-corpus questions and the five
+`OUT_OF_SCOPE` questions scored. The answer was that in-corpus ran 0.161–0.396
+and out-of-scope ran 0.808–0.896, a gap 0.41 wide whose midpoint is 0.602, so
+the starter's 0.6 was already correct and nothing needed changing.
+
+That conclusion was right about the number and wrong about the confidence. The
+five `OUT_OF_SCOPE` questions are things like the capital of Mongolia and the
+1994 World Cup — a different world entirely, so a wide gap is guaranteed by how
+easy they are and says very little. The test that matters is a question a
+student would actually ask this system that the corpus happens not to contain.
+Six of those — library opening hours, credits to graduate, tuition deadline,
+parking ticket appeals, the engineering dean, the wifi password — score
+0.471–0.715, which is *inside* the gap, and three of them clear the 0.6 gate.
+
+That changed the write-up from "0.6 is obviously right" to a documented
+trade-off, and it changed what I checked. Rather than assume the grounding
+instruction catches what the gate lets through, I sent all three through the
+model: two refused outright and the third answered from a real line in
+`thread_sleep_schedule.txt` and stated what the documents didn't cover. Zero
+fabrications, which is the evidence for keeping 0.6 instead of tightening to
+0.43 and risking refusals on real questions.
+
+A third thing worth recording: Claude also caught that `questions.py` was
+broken — the five dicts had the question text as the key with an empty value
+instead of `{"question": ..., "expects": ...}`, which would have raised
+`KeyError` in `run_eval.py` next unit — and that the questions were about
+`campus_life` topics while my corpus is `advice_threads`.
 
 **1.**
 
