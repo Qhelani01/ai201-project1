@@ -29,18 +29,47 @@
 
 ## Chunking Strategy
 
-**Chunk size:**
-**Overlap:**
+**Chunk size:** one reply, with a 120-character floor and a 600-character cap
+(produces 157–385 characters in practice, 220 on average)
+**Overlap:** none — the thread's question line is prepended to every chunk instead
 
-<!-- What about YOUR documents made you pick these numbers? Short posts and
-     long sectioned guides don't want the same chunking, and "800 seemed
-     reasonable" earns nothing. Point at something you noticed when you read
-     the documents in Milestone 1.
+I split on structure, not on a character count. Every document in
+`advice_threads` is a `THREAD:` question followed by three to five
+`--- reply N (X votes) ---` blocks, and that markup is completely consistent
+across all 23 files, so a reply is a natural unit to cut on.
 
-     If you changed your mind partway through, say so and say why. That's worth
-     more than pretending you got it right first time.
+Two things I noticed reading the documents made me pick this:
 
-     Milestone 3. -->
+**Each reply is one person making one claim, and the replies disagree with each
+other.** In the bike thread, reply 1 says it's worth it, reply 2 sold theirs
+because road salt destroys a drivetrain, reply 3 splits the difference. Keeping
+those in one chunk averages three positions into one blob that matches any
+question about bikes a little and none of them well. Separate chunks let
+retrieval surface the position that actually answers the question.
+
+**Replies lean on the question and never restate it.** "Doesn't roll over
+between semesters" is meaningless unless you know the thread asked about the
+printing quota. That's why the title is prepended to every chunk. It also does
+the job overlap normally does — carrying context across a cut — for about 40
+characters, instead of dragging in half of whoever replied before. So overlap
+is zero.
+
+**What the starter was doing:** 26 chunks from 23 documents, averaging 487
+characters. The 800-character window never split a thread into its separate
+arguments, and the 650-character stride sliced a duplicate tail off the four
+longest documents — one of which came out as a **2-character chunk**. So it was
+wrong in both directions at once: too coarse for the corpus, and generating
+fragments anyway. Mine gives 67 chunks with a shortest of 157 characters.
+
+**I changed my mind on one number.** I set the merge floor at 180 characters
+first, reasoning that a lone 68-character reply like "Counterpoint, I sold
+mine" is too thin to retrieve on. But reply bodies here run 68–195 characters
+with a median of 117, so a 180 floor merged almost everything in pairs and
+collapsed every three-reply thread straight back into a single whole-document
+chunk — 12 of 23 documents came out unsplit, which is the starter's behaviour
+with extra steps. Dropping it to 120 leaves most replies standing alone and
+merges only the genuinely short ones (8 of 67 chunks hold two replies). All 75
+replies survive either way; the floor only decides how they group.
 
 ## Sample Chunks
 
@@ -53,43 +82,64 @@
 
      Milestone 3. -->
 
-**Chunk 1** — source: `thread_bike_commute.txt#0` — produced by: `chunker.py::fallback_split`
+**Chunk 1** — source: `thread_bike_commute.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
 THREAD: Is a bike worth it for a 20 minute walk commute?
 
 --- reply 1 (14 votes) ---
 Yeah. Cuts an 18 minute walk to about 6. The thing nobody mentions is storage — covered bike parking exists at three buildings and is full by 9am at all three.
-
---- reply 2 (9 votes) ---
-Counterpoint, I sold mine. Between November and March the paths are either icy or salted and salt destroys a drivetrain in one season.
-
---- reply 3 (22 votes) ---
-Both true. I keep a cheap bike for September to November and walk the rest of the year. Total cost was about $120 for the bike and I don't care what happens to it.
-
---- reply 4 (5 votes) ---
-If you do get one, the campus does free registration and it's the only reason I got mine back after it was taken.
 ```
 
-**Chunk 2** — source: `` — produced by: ``
+Answers "is a bike faster than walking here" and "where do I park it" without
+any of the three replies that follow it.
+
+**Chunk 2** — source: `thread_first_year_regret.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+THREAD: What do you wish you'd known in first year?
+
+--- reply 1 (41 votes) ---
+That the add/drop deadline and the withdrawal deadline are different dates and only one of them is on the calendar everyone reads.
 ```
 
-**Chunk 3** — source: `` — produced by: ``
+One claim, and the thread question is what makes it findable — the reply never
+says "first year" itself.
+
+**Chunk 3** — source: `thread_laptop_specs.txt#2` — produced by: `chunker.py::split_documents`
 
 ```
+THREAD: How much laptop do I actually need for CS courses?
+
+--- reply 3 (12 votes) ---
+I did two years on an 8GB machine and it was fine until the last project, at which point it very much wasn't. 16 is the answer.
 ```
 
-**Chunk 4** — source: `` — produced by: ``
+Reply 3 of 3, and it stands alone. Under the starter this was the middle of an
+800-character window with two other opinions.
+
+**Chunk 4** — source: `thread_parking.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+THREAD: Worth getting a parking permit?
+
+--- reply 1 (15 votes) ---
+West lots sell out in about three days in August. East lot never sells out but it's a 12 minute walk, at which point you might as well have parked on the street.
 ```
 
-**Chunk 5** — source: `` — produced by: ``
+Names both lots and the timing. A question about either lot hits this chunk.
+
+**Chunk 5** — source: `thread_roommate_conflict.txt#2` — produced by: `chunker.py::split_documents`
 
 ```
+THREAD: Roommate situation isn't working. What now?
+
+--- reply 3 (33 votes) ---
+Write down specifics before the meeting. 'It's not working' is hard to act on; 'guests four nights a week past 2am' is not.
 ```
+
+Complete advice plus the example that explains it. The 33 votes travel with it,
+which is the corpus's own signal that people agreed.
 
 ## Sample Answer
 

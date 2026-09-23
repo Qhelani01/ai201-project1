@@ -22,10 +22,26 @@ to it, write down what you saw, and move on. That's a real observation about
 your pipeline, not giving up.
 """
 
+import re
 from dataclasses import dataclass
 
 import config
 from ingest import Document
+
+# Every document in advice_threads is a question line followed by reply blocks
+# that look exactly like this. Nothing else in the corpus starts with "---".
+REPLY_MARKER = re.compile(r"^--- reply \d+ \(\d+ votes\) ---$", re.M)
+
+# One reply is the unit. A reply shorter than this gets the next one glued on,
+# so no chunk goes out as a bare fragment like "Counterpoint, I sold mine."
+# Reply bodies here run 68-195 characters with a median of 117, so 120 leaves
+# most replies standing alone and merges only the genuinely short ones. Raising
+# it to 180 collapsed every three-reply thread back into a single chunk.
+MIN_CHUNK_CHARS = 120
+
+# Nothing here comes close to this. It only stops the trailing-reply merge
+# below from building one oversized chunk on a longer thread.
+MAX_CHUNK_CHARS = 600
 
 
 @dataclass
@@ -80,24 +96,108 @@ def fallback_split(
     return chunks
 
 
+def _split_thread(text: str) -> list[str] | None:
+    """
+    Cut one thread into chunks at reply boundaries.
+
+    Returns None if the document isn't thread-shaped, so the caller can fall
+    back to something generic.
+
+    The thread question goes on the front of every chunk. Replies lean on it
+    constantly — "Doesn't roll over between semesters" only means anything if
+    you know the thread asked about the printing quota — and repeating one
+    short line is cheaper than carrying a character overlap that would drag in
+    half of whoever replied before.
+    """
+    markers = list(REPLY_MARKER.finditer(text))
+    if not markers:
+        return None
+
+    title = text[: markers[0].start()].strip()
+
+    blocks: list[str] = []
+    for i, marker in enumerate(markers):
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(text)
+        body = text[marker.end() : end].strip()
+        if body:
+            # Keep the vote count. It's the corpus's own signal for which
+            # answers people agreed with, and it costs one line to carry.
+            blocks.append(f"{marker.group(0)}\n{body}")
+
+    if not blocks:
+        return None
+
+    # Pack replies into groups, closing a group once it's substantial enough
+    # to stand on its own.
+    groups: list[list[str]] = []
+    current: list[str] = []
+    for block in blocks:
+        current.append(block)
+        if sum(len(b) for b in current) >= MIN_CHUNK_CHARS:
+            groups.append(current)
+            current = []
+
+    if current:
+        # A leftover short reply joins the previous chunk rather than going out
+        # alone — unless that would make the previous chunk oversized.
+        tail_len = sum(len(b) for b in current)
+        if groups and sum(len(b) for b in groups[-1]) + tail_len <= MAX_CHUNK_CHARS:
+            groups[-1].extend(current)
+        else:
+            groups.append(current)
+
+    return [f"{title}\n\n" + "\n\n".join(group) for group in groups]
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    """Generic fallback: pack whole paragraphs up to MAX_CHUNK_CHARS."""
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+    pieces: list[str] = []
+    current = ""
+    for paragraph in paragraphs:
+        if current and len(current) + len(paragraph) + 2 > MAX_CHUNK_CHARS:
+            pieces.append(current)
+            current = paragraph
+        else:
+            current = f"{current}\n\n{paragraph}" if current else paragraph
+    if current:
+        pieces.append(current)
+
+    return pieces
+
+
 def split_documents(documents: list[Document]) -> list[Chunk]:
     """
-    Split documents into chunks. ⚠️ REPLACE THE BODY OF THIS IN MILESTONE 3.
+    Split documents at reply boundaries, one reply per chunk.
 
-    Right now it just calls the fallback. That is the plain, generic behaviour
-    the brief is talking about.
+    Written for `advice_threads`, where every document is a question followed
+    by three to five replies and each reply is one person making one claim.
+    The starter's 800-character window was wrong for this corpus in both
+    directions at once: it never split a thread into its separate arguments,
+    and its 650-character stride sliced a duplicate tail off the four longest
+    documents — including a 2-character chunk.
 
-    When you write your own strategy, set `produced_by` to
-    "chunker.py::split_documents" so your README's Sample Chunks section names
-    the right function. `app.py chunks` prints that string for you.
-
-    Things worth thinking about before you write any code:
-      - Are your documents short posts or long guides?
-      - Is the useful information in one sentence, or spread over a paragraph?
-      - Would splitting on paragraph breaks keep more thoughts intact than
-        splitting on a character count?
+    Splitting on replies keeps whole opinions intact and lets retrieval surface
+    the reply that answers the question instead of a thread where the useful
+    sentence is a quarter of the text. Threads disagree with themselves a lot,
+    so several short chunks from one thread beat one blob averaging them out.
     """
-    return fallback_split(documents)
+    chunks: list[Chunk] = []
+
+    for doc in documents:
+        pieces = _split_thread(doc.text) or _split_paragraphs(doc.text)
+        for index, piece in enumerate(pieces):
+            chunks.append(
+                Chunk(
+                    text=piece,
+                    source=doc.source,
+                    index=index,
+                    produced_by="chunker.py::split_documents",
+                )
+            )
+
+    return chunks
 
 
 def describe(chunks: list[Chunk]) -> str:
