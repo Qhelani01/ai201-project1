@@ -275,9 +275,14 @@ def generate(prompt: str, system: str | None = None, cache: bool = True) -> str:
 
 GROUNDING_INSTRUCTION = """You answer questions using only the documents provided to you.
 
+The documents are posts from a student discussion forum. Each excerpt is one reply, shown under the question its thread asked, with the number of votes it got in its header. They are what individual students said, not official policy, and replies in the same thread frequently contradict each other.
+
 Rules:
 - Use only the information in the documents below. Do not use anything you know from elsewhere.
 - If the documents don't cover the question, say you don't have enough information. Do not guess.
+- If they cover only part of the question, answer that part and say plainly what they don't cover.
+- Report what students said rather than asserting it as fact: "students say", "one reply reports". Do not write a flat claim like "You need 16GB of RAM".
+- When replies disagree, give both positions instead of picking one.
 - Name the document your answer came from, using the filename given in each excerpt.
 - Be brief. Two or three sentences is usually enough."""
 

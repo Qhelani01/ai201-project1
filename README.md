@@ -146,27 +146,119 @@ which is the corpus's own signal that people agreed.
 <!-- One complete question and answer, pasted as text, with the source line
      visible. Milestone 4. -->
 
-**Question:**
+**Question:** How much RAM do I need in a laptop for CS courses?
 
 **Answer:**
 
 ```
+$ python app.py --corpus advice_threads ask "How much RAM do I need in a laptop for CS courses?"
+
+  (best distance 0.161, cutoff 0.6)
+
+Based on `thread_laptop_specs.txt`, students state that 16GB of RAM is the recommended amount worth paying for, with one reply noting that an 8GB machine was fine for two years until struggling on the final project.
+
+Sources retrieved: thread_first_gen.txt, thread_laptop_specs.txt, thread_pass_fail.txt
+
+1 model calls this session, 680 tokens (630 in, 50 out)
 ```
 
-**My relevance cutoff:**
+And the same system refusing something it doesn't cover, before any model call:
 
-<!-- The number you set in config.py, and how you got there.
+```
+$ python app.py --corpus advice_threads ask "What is the capital of Mongolia?"
 
-     You ran five questions your corpus covers and the five in OUT_OF_SCOPE
-     that it clearly doesn't, and wrote down the best distance for each. What
-     did those two groups look like? Where was the gap? Put the actual numbers
-     here — the table below wants all ten rows.
+  (best distance 0.893, cutoff 0.6)
 
-     Milestone 4. -->
+I don't have enough information about that.
+
+0 model calls this session
+```
+
+**My relevance cutoff:** 0.6 — unchanged from the starter, kept deliberately
+after measuring. `TOP_K` also stays at 5.
 
 | Question | In corpus? | Best distance |
 |---|---|---|
-|  |  |  |
+| How much RAM do I need in a laptop for CS courses? | yes | 0.161 |
+| When is laundry least busy in the dorms? | yes | 0.232 |
+| How late can I declare a course pass/fail? | yes | 0.296 |
+| Does it matter if I buy an older edition of the textbook? | yes | 0.342 |
+| How much printing credit do students get? | yes | 0.396 |
+| What is the recommended dosage of ibuprofen for a headache? | no | 0.808 |
+| How do I write a for loop in Rust? | no | 0.835 |
+| Who won the 1994 World Cup? | no | 0.893 |
+| What is the capital of Mongolia? | no | 0.894 |
+| How do I change the oil in a diesel engine? | no | 0.896 |
+
+The two groups are 0.161–0.396 and 0.808–0.896, so the gap is 0.41 wide and its
+midpoint is 0.602. The starter's 0.6 is already sitting almost exactly in the
+middle of it, so there was nothing to gain by moving it.
+
+**The gap is wider than it is real, though.** The five OUT_OF_SCOPE questions
+are from a different world entirely, so of course they score badly. I ran six
+harder ones — things a student would plausibly ask this system that the corpus
+simply doesn't contain:
+
+| Near-miss question | Best distance | Passes the 0.6 gate? |
+|---|---|---|
+| What are the library's opening hours? | 0.471 | yes |
+| How many credits do I need to graduate? | 0.489 | yes |
+| What is the tuition payment deadline? | 0.570 | yes |
+| How do I appeal a parking ticket? | 0.614 | no |
+| Who is the dean of the engineering school? | 0.698 | no |
+| What is the wifi password on campus? | 0.715 | no |
+
+These land *inside* the gap, and three of them clear the gate. That's the real
+decision, and both directions cost something:
+
+- I could drop the cutoff to about **0.43** — between my worst real question
+  (0.396) and my closest near-miss (0.471). On this sample that scores
+  perfectly: all five real questions pass, all six near-misses refuse. But the
+  margin is 0.035 on each side. A real question worded slightly differently
+  lands on the wrong side of it, and refusing a question I have the answer to
+  is the failure I care about most.
+- At **0.6** the margin above my worst real question is 0.2, which survives
+  rewording, and the three near-misses that get through go to the second layer
+  instead.
+
+I checked that the second layer actually holds rather than assuming it, by
+sending all three through:
+
+- *"How many credits do I need to graduate?"* → "I don't have enough
+  information to answer how many credits you need to graduate."
+- *"What is the tuition payment deadline?"* → "I don't have enough information
+  to answer this question."
+- *"What are the library's opening hours?"* → answered "one reply mentions that
+  the library is open until 2am (thread_sleep_schedule.txt). The documents do
+  not provide information on when the library opens." That's a real line in
+  that file, so it's grounded, and it says what it doesn't know.
+
+Zero fabrications across the three. So I kept 0.6 and let the prompt handle the
+near ones, which is the division of labour the gate was designed around — it
+catches the clear misses, the prompt catches the near ones.
+
+**Top-k stayed at 5.** The chunk containing the expected answer came back at
+rank 1 for all five questions, so raising it buys nothing. Lowering it would
+cost the corroborating and dissenting replies that are the point of this
+corpus: reply-level chunks mean a three-reply thread is three retrievals, and
+cutting to k=3 would throw away the disagreement. The loosely-related chunks
+that come back for the narrower questions (the printing thread has only two
+replies, so 4 of its 5 results score above 0.6) did not corrupt any answer.
+
+**I tightened the grounding instruction.** The starter's version got the
+citation right but the framing wrong for this corpus — it answered "You need
+16GB of RAM for CS courses" as if it were policy, when it is three students
+with vote counts who partly disagree. I added four rules: report what students
+said rather than asserting it, give both sides when replies disagree, say
+plainly what the documents don't cover when they only answer part of a
+question, and keep the existing filename citation. Same question now returns
+"students state that 16GB is the recommended amount worth paying for, with one
+reply noting that an 8GB machine was fine for two years until the final
+project" — same fact, honest about what kind of claim it is.
+
+All five in-corpus questions return an answer containing the phrase in
+`expects`, and all five OUT_OF_SCOPE questions are refused by the gate without
+reaching the model.
 
 ## How I Used AI
 
